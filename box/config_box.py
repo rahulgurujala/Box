@@ -53,7 +53,7 @@ class ConfigBox(Box):
         if isinstance(item, str) and item.lower() in ("n", "no", "false", "f", "0"):
             return False
 
-        return True if item else False
+        return bool(item)
 
     def int(self, item, default=None):
         """
@@ -107,9 +107,7 @@ class ConfigBox(Box):
         if strip:
             item = item.lstrip("[").rstrip("]")
         out = [x.strip() if strip else x for x in item.split(spliter)]
-        if mod:
-            return list(map(mod, out))
-        return out
+        return list(map(mod, out)) if mod else out
 
     # loose configparser compatibility
 

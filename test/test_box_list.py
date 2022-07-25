@@ -28,7 +28,7 @@ class TestBoxList:
         shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
     def test_box_list(self):
-        new_list = BoxList({"item": x} for x in range(0, 10))
+        new_list = BoxList({"item": x} for x in range(10))
         new_list.extend([{"item": 22}])
         assert new_list[-1].item == 22
         new_list.append([{"bad_item": 33}])

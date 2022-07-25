@@ -343,11 +343,9 @@ class Box(dict):
                 items.add(key)
 
         for key in self.keys():
-            if key not in items:
-                if self._box_config["conversion_box"]:
-                    key = self._safe_attr(key)
-                    if key:
-                        items.add(key)
+            if key not in items and self._box_config["conversion_box"]:
+                if key := self._safe_attr(key):
+                    items.add(key)
 
         return list(items)
 
@@ -399,18 +397,18 @@ class Box(dict):
         return [(k, self[k]) for k in self.keys(dotted=True)]
 
     def get(self, key, default=NO_DEFAULT):
-        if key not in self:
-            if default is NO_DEFAULT:
-                if self._box_config["default_box"] and self._box_config["default_box_none_transform"]:
-                    return self.__get_default(key)
-                else:
-                    return None
-            if isinstance(default, dict) and not isinstance(default, Box):
-                return Box(default)
-            if isinstance(default, list) and not isinstance(default, box.BoxList):
-                return box.BoxList(default)
-            return default
-        return self[key]
+        if key in self:
+            return self[key]
+        if default is NO_DEFAULT:
+            if self._box_config["default_box"] and self._box_config["default_box_none_transform"]:
+                return self.__get_default(key)
+            else:
+                return None
+        if isinstance(default, dict) and not isinstance(default, Box):
+            return Box(default)
+        if isinstance(default, list) and not isinstance(default, box.BoxList):
+            return box.BoxList(default)
+        return default
 
     def copy(self) -> "Box":
         return Box(super().copy(), **self.__box_config())
@@ -448,17 +446,18 @@ class Box(dict):
             value = default_value.copy()
         else:
             value = default_value
-        if self._box_config["default_box_create_on_get"]:
-            if not attr or not (item.startswith("_") and item.endswith("_")):
-                super().__setitem__(item, value)
+        if self._box_config["default_box_create_on_get"] and (
+            not attr or not item.startswith("_") or not item.endswith("_")
+        ):
+            super().__setitem__(item, value)
         return value
 
     def __box_config(self) -> Dict:
-        out = {}
-        for k, v in self._box_config.copy().items():
-            if not k.startswith("__"):
-                out[k] = v
-        return out
+        return {
+            k: v
+            for k, v in self._box_config.copy().items()
+            if not k.startswith("__")
+        }
 
     def __recast(self, item, value):
         if self._box_config["box_recast"] and item in self._box_config["box_recast"]:
@@ -512,9 +511,10 @@ class Box(dict):
                     if self._box_config["default_box"] and not _ignore_default:
                         return self.__get_default(item)
                     raise BoxKeyError(str(item)) from _exception_cause(err)
-                if first_item in self.keys():
-                    if hasattr(self[first_item], "__getitem__"):
-                        return self[first_item][children]
+                if first_item in self.keys() and hasattr(
+                    self[first_item], "__getitem__"
+                ):
+                    return self[first_item][children]
             if self._box_config["camel_killer_box"] and isinstance(item, str):
                 converted = _camel_killer(item)
                 if converted in self.keys():
@@ -557,13 +557,17 @@ class Box(dict):
             raise BoxError("Box is frozen")
         if self._box_config["box_dots"] and isinstance(key, str) and ("." in key or "[" in key):
             first_item, children = _parse_box_dots(self, key, setting=True)
-            if first_item in self.keys():
-                if hasattr(self[first_item], "__setitem__"):
-                    return self[first_item].__setitem__(children, value)
+            if first_item in self.keys() and hasattr(
+                self[first_item], "__setitem__"
+            ):
+                return self[first_item].__setitem__(children, value)
         value = self.__recast(key, value)
-        if key not in self.keys() and self._box_config["camel_killer_box"]:
-            if self._box_config["camel_killer_box"] and isinstance(key, str):
-                key = _camel_killer(key)
+        if (
+            key not in self.keys()
+            and self._box_config["camel_killer_box"]
+            and isinstance(key, str)
+        ):
+            key = _camel_killer(key)
         if self._box_config["conversion_box"] and self._box_config["box_duplicates"] != "ignore":
             self._conversion_checks(key)
         self.__convert_and_store(key, value)
@@ -596,12 +600,15 @@ class Box(dict):
                 raise BoxKeyError(str(key)) from None
             if hasattr(self[first_item], "__delitem__"):
                 return self[first_item].__delitem__(children)
-        if key not in self.keys() and self._box_config["camel_killer_box"]:
-            if self._box_config["camel_killer_box"] and isinstance(key, str):
-                for each_key in self:
-                    if _camel_killer(key) == each_key:
-                        key = each_key
-                        break
+        if (
+            key not in self.keys()
+            and self._box_config["camel_killer_box"]
+            and isinstance(key, str)
+        ):
+            for each_key in self:
+                if _camel_killer(key) == each_key:
+                    key = each_key
+                    break
         try:
             super().__delitem__(key)
         except KeyError as err:
@@ -669,12 +676,10 @@ class Box(dict):
         return str(self.to_dict())
 
     def __iter__(self) -> Generator:
-        for key in self.keys():
-            yield key
+        yield from self.keys()
 
     def __reversed__(self) -> Generator:
-        for key in reversed(list(self.keys())):
-            yield key
+        yield from reversed(list(self.keys()))
 
     def to_dict(self) -> Dict:
         """
@@ -697,8 +702,7 @@ class Box(dict):
             raise BoxError("Box is frozen")
         if (len(args) + int(bool(kwargs))) > 1:
             raise BoxTypeError(f"update expected at most 1 argument, got {len(args) + int(bool(kwargs))}")
-        single_arg = next(iter(args), None)
-        if single_arg:
+        if single_arg := next(iter(args), None):
             if hasattr(single_arg, "keys"):
                 for k in single_arg:
                     self.__convert_and_store(k, single_arg[k])
@@ -752,9 +756,8 @@ class Box(dict):
         if item in self:
             return self[item]
 
-        if self._box_config["box_dots"]:
-            if item in _get_dot_paths(self):
-                return self[item]
+        if self._box_config["box_dots"] and item in _get_dot_paths(self):
+            return self[item]
 
         if isinstance(default, dict):
             default = self._box_config["box_class"](default, **self.__box_config())
@@ -765,10 +768,8 @@ class Box(dict):
 
     def _safe_attr(self, attr):
         """Convert a key into something that is accessible as an attribute"""
-        if isinstance(attr, str):
-            # By assuming most people are using string first we get substantial speed ups
-            if attr.isidentifier() and not iskeyword(attr):
-                return attr
+        if isinstance(attr, str) and attr.isidentifier() and not iskeyword(attr):
+            return attr
 
         if isinstance(attr, tuple):
             attr = "_".join([str(x) for x in attr])
@@ -860,10 +861,9 @@ class Box(dict):
         :param kwargs: parameters to pass to `Box()` or `json.loads`
         :return: Box object from json data
         """
-        box_args = {}
-        for arg in kwargs.copy():
-            if arg in BOX_PARAMETERS:
-                box_args[arg] = kwargs.pop(arg)
+        box_args = {
+            arg: kwargs.pop(arg) for arg in kwargs.copy() if arg in BOX_PARAMETERS
+        }
 
         data = _from_json(json_string, filename=filename, encoding=encoding, errors=errors, **kwargs)
 
@@ -919,10 +919,9 @@ class Box(dict):
             :param kwargs: parameters to pass to `Box()` or `yaml.load`
             :return: Box object from yaml data
             """
-            box_args = {}
-            for arg in kwargs.copy():
-                if arg in BOX_PARAMETERS:
-                    box_args[arg] = kwargs.pop(arg)
+            box_args = {
+                arg: kwargs.pop(arg) for arg in kwargs.copy() if arg in BOX_PARAMETERS
+            }
 
             data = _from_yaml(yaml_string=yaml_string, filename=filename, encoding=encoding, errors=errors, **kwargs)
             if not data:
@@ -986,10 +985,9 @@ class Box(dict):
             :param kwargs: parameters to pass to `Box()`
             :return: Box object
             """
-            box_args = {}
-            for arg in kwargs.copy():
-                if arg in BOX_PARAMETERS:
-                    box_args[arg] = kwargs.pop(arg)
+            box_args = {
+                arg: kwargs.pop(arg) for arg in kwargs.copy() if arg in BOX_PARAMETERS
+            }
 
             data = _from_toml(toml_string=toml_string, filename=filename, encoding=encoding, errors=errors)
             return cls(data, **box_args)
@@ -1037,10 +1035,9 @@ class Box(dict):
             :param kwargs: parameters to pass to `Box()`
             :return: Box object
             """
-            box_args = {}
-            for arg in kwargs.copy():
-                if arg in BOX_PARAMETERS:
-                    box_args[arg] = kwargs.pop(arg)
+            box_args = {
+                arg: kwargs.pop(arg) for arg in kwargs.copy() if arg in BOX_PARAMETERS
+            }
 
             data = _from_msgpack(msgpack_bytes=msgpack_bytes, filename=filename, **kwargs)
             if not isinstance(data, dict):
